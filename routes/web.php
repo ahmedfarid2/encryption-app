@@ -7,10 +7,10 @@ use Illuminate\Support\Facades\Storage;
 
 Route::controller(FileController::class)->group(function () {
     Route::get('/', 'index');
-    Route::post('/upload', 'upload');
+    Route::post('/upload-chunk', 'uploadChunk');
+    Route::post('/finalize-upload', 'finalizeUpload');
     Route::post('/encrypt', 'encrypt');
     Route::post('/decrypt', 'decrypt');
-    Route::post('/validate', 'validateEncryption');
 });
 
 Route::get('/download', function (Request $request) {

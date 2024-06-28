@@ -8,6 +8,7 @@ use App\Helpers\ErrorHelper;
 use App\Helpers\ErrorLevels;
 use Exception;
 
+
 class FileController extends Controller
 {
     protected $fileUseCases;
@@ -22,39 +23,60 @@ class FileController extends Controller
         return view('file');
     }
 
-    public function upload(Request $request)
+    public function uploadChunk(Request $request)
     {
         try {
-            $filePath = $this->fileUseCases->getUploadFileUseCase()->execute(
-                $request->file('file')
-            );
+            $chunk = $request->file('chunk');
+            $fileId = $request->input('fileId');
+            $chunkIndex = $request->input('chunkIndex');
 
-            return response()->json([
-                'filePath' => $filePath,
-                'fileName' => $request->file('file')->getClientOriginalName(),
-                'fileSize' => $request->file('file')->getSize(),
-                'fileExtension' => $request->file('file')->getClientOriginalExtension(),
-            ]);
+            $this->fileUseCases->getUploadFileChunkUseCase()->execute(
+                $chunk,
+                $fileId,
+                $chunkIndex
+            );
         } catch (Exception $e) {
             ErrorHelper::logError(
-                message: 'Error uploading file',
+                message: 'Error uploading file chunk',
                 level: ErrorLevels::ERROR,
-                name: 'FileController.upload',
+                name: 'FileController.uploadChunk',
                 error: $e,
                 stackTrace: $e->getTraceAsString()
             );
 
-            return response()->json(['error' => 'File upload failed.'], 500);
+            return response()->json(['error' => 'File upload chunk failed.'], 500);
         }
     }
 
+    public function finalizeUpload(Request $request)
+    {
+        try {
+            $fileId = $request->input('fileId');
+            $originalFileName = $request->input('originalFileName');
+
+            $response = $this->fileUseCases->getFinalizeUploadUseCase()->execute(
+                $fileId,
+                $originalFileName
+            );
+            return response()->json($response);
+        } catch (Exception $e) {
+            ErrorHelper::logError(
+                message: 'Error finalizing file upload',
+                level: ErrorLevels::ERROR,
+                name: 'FileController.finalizeUpload',
+                error: $e,
+                stackTrace: $e->getTraceAsString()
+            );
+
+            return response()->json(['error' => 'File upload finalization failed.'], 500);
+        }
+    }
 
     public function encrypt(Request $request)
     {
         try {
             $result = $this->fileUseCases->getEncryptFileUseCase()->execute(
                 $request->input('filePath'),
-                $request->input('outputFileName')
             );
 
             return response()->json($result);
@@ -76,7 +98,6 @@ class FileController extends Controller
         try {
             $result = $this->fileUseCases->getDecryptFileUseCase()->execute(
                 $request->input('filePath'),
-                $request->input('outputFileName')
             );
 
             return response()->json($result);
@@ -90,27 +111,6 @@ class FileController extends Controller
             );
 
             return response()->json(['error' => 'File decryption failed.'], 500);
-        }
-    }
-
-    public function validateEncryption(Request $request)
-    {
-        try {
-            $result = $this->fileUseCases->getValidateEncryptionUseCase()->execute(
-                $request->input('originalFilePath')
-            );
-
-            return response()->json($result);
-        } catch (Exception $e) {
-            ErrorHelper::logError(
-                message: 'Error validating encryption',
-                level: ErrorLevels::ERROR,
-                name: 'FileController.validateEncryption',
-                error: $e,
-                stackTrace: $e->getTraceAsString()
-            );
-
-            return response()->json(['error' => 'Validation failed.'], 500);
         }
     }
 }

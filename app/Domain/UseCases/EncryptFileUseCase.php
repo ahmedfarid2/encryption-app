@@ -3,49 +3,73 @@
 namespace App\Domain\UseCases;
 
 use App\Domain\Repositories\FileRepositoryInterface;
-use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Facades\Validator;
 use Exception;
+use App\Helpers\ErrorHelper;
+use App\Helpers\ErrorLevels;
+use App\Helpers\FileSignatures;
 
 class EncryptFileUseCase
 {
     protected $fileRepository;
+    private $chunkSize;
+    private $key;
 
-    public function __construct(FileRepositoryInterface $fileRepository)
+    public function __construct(FileRepositoryInterface $fileRepository, string $key, int $chunkSize)
     {
         $this->fileRepository = $fileRepository;
+        $this->chunkSize = $chunkSize;
+        $this->key = $key;
     }
 
-    public function execute($filePath, $outputFileName)
+    public function execute($filePath)
     {
-        $this->validate($filePath, $outputFileName);
+        try {
+            $this->validate($filePath);
+            $iv = random_bytes(16);
 
-        $fileContent = $this->fileRepository->getFileContent($filePath);
+            $orignalFilePath = storage_path('app/' . $filePath);
+            $encryptedFileName = pathinfo($filePath, PATHINFO_FILENAME) . '.enc';
 
-        $key = hex2bin(env('AES_SECRET_KEY'));
-        $iv = random_bytes(16);
-        $encrypted = openssl_encrypt($fileContent, 'aes-256-cbc', $key, 0, $iv);
+            $encryptedFilePath = 'encrypted_files/' . $encryptedFileName;
+            $encryptedFileFullPath = storage_path('app/' . $encryptedFilePath);
+            $this->fileRepository->makeDirectory(dirname($encryptedFilePath));
 
-        $encryptedFileName = $outputFileName . '.enc';
-        $encryptedFilePath = 'encrypted_files/' . $encryptedFileName;
-        $this->fileRepository->storeContent($iv . $encrypted, $encryptedFilePath);
-        
-        Session::put([
-            'encryptedFilePath' => $encryptedFilePath,
-            'originalFileExtension' => pathinfo($filePath, PATHINFO_EXTENSION)
-        ]);
+            $inputHandle = fopen($orignalFilePath, 'rb');
+            $outputHandle = fopen($encryptedFileFullPath, 'wb');
 
-        return [
-            'filePath' => $encryptedFilePath,
-            'fileName' => $encryptedFileName
-        ];
+            fwrite($outputHandle, FileSignatures::ENC->value);
+            fwrite($outputHandle, $iv);
+
+            while (!feof($inputHandle)) {
+                $chunk = fread($inputHandle, $this->chunkSize);
+                if ($chunk === false) break;
+                $encryptedChunk = openssl_encrypt($chunk, 'aes-256-cbc', $this->key, OPENSSL_RAW_DATA, $iv);
+                fwrite($outputHandle, $encryptedChunk);
+            }
+
+            fclose($inputHandle);
+            fclose($outputHandle);
+
+            return [
+                'filePath' => $encryptedFilePath,
+                'fileName' => $encryptedFileName
+            ];
+        } catch (Exception $e) {
+            ErrorHelper::logError(
+                message: 'Error encrypting file',
+                level: ErrorLevels::ERROR,
+                name: 'EncryptFileUseCase.execute',
+                error: $e,
+                stackTrace: $e->getTraceAsString()
+            );
+        }
     }
 
-    private function validate($filePath, $outputFileName)
+    private function validate($filePath)
     {
-        $validator = Validator::make(['filePath' => $filePath, 'outputFileName' => $outputFileName], [
+        $validator = Validator::make(['filePath' => $filePath], [
             'filePath' => 'required|string',
-            'outputFileName' => 'required|string',
         ]);
 
         if ($validator->fails()) {
